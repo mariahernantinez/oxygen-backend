@@ -1,0 +1,83 @@
+name: Build, Push and Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      repository-projects: read
+
+    steps:
+      - name: Checktou code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY}}/${{ env.IMAGE_NAME}}
+          tags: |
+            type=ref,env=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'latest'
+
+      - name: Checkout infra repository
+        uses: actions/checkout@v4
+        with:
+          repository: AAAAAAAAAAAAAAAAAA
+          path: infra
+          token: ${{ secrets_GH_PAT }}
+      
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install tuhuella ./infra/helm/tuhuella \
+          --namespace devsecops \
+          --set backend.image.tag=latest \
+          --set backend.image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+          --wait \
+          --timeout 5m
+
+      -name: Verify deployment
+        run: |
+          kubectl get pods -n devsecops
+          kubectl get services -n devsecops

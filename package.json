@@ -4,6 +4,7 @@
     "description": " Oxygen Services",
     "main": "service.js",
     "scripts": {
+        "build": "CI=false npm run build",
         "start": "node src/service.js",
         "test": "jest"
     },
